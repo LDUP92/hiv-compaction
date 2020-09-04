@@ -10,3 +10,4 @@ All the raw sequencing data have been deposited in the Gene Expression Omnibus (
 ## Code
 
 - [ATAC-seq](scripts/atac.md)
+- [Genomic screen](scripts/screen.md)
