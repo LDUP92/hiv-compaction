@@ -4,7 +4,7 @@ This repository contains data access and computational analyses for the methods 
  
 ## Data
 
-All the raw sequencing data have been deposited in the Gene Expression Omnibus (GEO) under accession number XXX
+All the raw sequencing data have been deposited in the Gene Expression Omnibus (GEO) under accession number GSE156630 (reviewer access only)
 
 
 ## Code
