@@ -1,7 +1,7 @@
 
 ## Contents
 
-- [Libraries][atac.md#Libraries]
+- [Libraries](atac.md#libraries)
 - [Software](atac.md#software-and-operating-system)
 - [Processing](atac.md#processing)
   - [Quality check](atac.md#quality-check)
