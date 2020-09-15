@@ -251,39 +251,6 @@ do
 done
 ```
 
-With qPCR fold-change normalisation using the `--scaleFactor` option::
-
-```bash
-cd ~/bam_atac
-
-for bam in *.clean.bam
-do
-  bname=${bam%.bam}
-  echo $bam
-  samtools view -b -@ 20 $bam HIV1_1LTR_circle > ${bname}.HIV1_1LTR_circle.bam && samtools index ${bname}.HIV1_1LTR_circle.bam  
-done
-
-# WTnoVi
-bam=WTnoVi.clean.HIV1_1LTR_circle.bam
-bname=${bam%.bam}
-nohup bamCoverage -b $bam -o ../bw_atac/$bname.bw -of bigwig --scaleFactor 1.17 --binSize 1 -p 20 --normalizeUsing CPM > ../bw_atac/$bname.log &
-
-# WTnoVLP
-bam=WTnoVLP.clean.HIV1_1LTR_circle.bam
-bname=${bam%.bam}
-nohup bamCoverage -b $bam -o ../bw_atac/$bname.bw -of bigwig --scaleFactor 1 --binSize 1 -p 20 --normalizeUsing CPM > ../bw_atac/$bname.log &
-
-# WTVprVLP
-bam=WTVprVLP.clean.HIV1_1LTR_circle.bam
-bname=${bam%.bam}
-nohup bamCoverage -b $bam -o ../bw_atac/$bname.bw -of bigwig --scaleFactor 1 --binSize 1 -p 20 --normalizeUsing CPM > ../bw_atac/$bname.log &
-
-# WTConVLP 
-bam=WTConVLP.clean.HIV1_1LTR_circle.bam
-bname=${bam%.bam}
-nohup bamCoverage -b $bam -o ../bw_atac/$bname.bw -of bigwig --scaleFactor 1.5 --binSize 1 -p 20 --normalizeUsing CPM > ../bw_atac/$bname.log &
-```
-
 
 ### ATACseqQC
 
