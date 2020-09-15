@@ -16,6 +16,11 @@
   - [Insert size plots](atac.md#insert-size-plots)
   - [Create bigwig files](atac.md#create-bigwig-files)
   - [ATACseqQC](atac.md#atacseqqc)
+- [Differential analysis](atac.md#differential-analysis)
+  - [Define mappable genome](atac.md#define-mappable-genome)
+  - [Obtain human mappable regions](atac.md#obtain-human-mappable-regions)
+  - [Coverage in regions](atac.md#coverage-in-regions)
+  - [Testing](atac.md#testing)
 
 
 
@@ -37,7 +42,7 @@ Saved in folder `~/fastq_atac`
 Software:
 
 - [FastQC v0.11.3](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
-- Standard Unix tools: awk, pigz, echo, mkdir
+- Standard Unix tools: awk, cut, grep, pigz, sort, echo, mkdir
 - [cutadapt v1.12](http://cutadapt.readthedocs.io/en/stable/guide.html)
 - [bwa v0.7.15-r1140](http://bio-bwa.sourceforge.net/)
 - [samtools v1.3.1](http://samtools.sourceforge.net/)
@@ -45,6 +50,9 @@ Software:
 - [bedtools v2.27.0](http://bedtools.readthedocs.io/en/latest/)
 - [deeptools v2.4.2-5-f439d22](https://deeptools.readthedocs.io/en/develop/index.html)
 - [ATACseqQC v1.6.4](https://www.bioconductor.org/packages/release/bioc/html/ATACseqQC.html)
+- [R v3.3.2](https://www.r-project.org/). Libraries:
+  - [ggplot2 v2.2.1](http://ggplot2.org/)
+  - [data.table v1.10.4](https://cran.r-project.org/web/packages/data.table/index.html)
 
 Operating system:
 
@@ -297,4 +305,132 @@ for (f in dir(pattern = "*clean.bam$")){
   fragSizeDist(f, bname)
   dev.off()
 }
+```
+
+
+
+## Differential analysis
+
+### Define mappable genome
+
+```bash
+cd ~/bam_atac
+
+g=~/reference/hg38_HIV1_1LTR_circle.fa.fai
+
+sbatch -J mappable -o mappable.log --mem 16G --wrap "bedtools genomecov -ibam WTnovi_S1.clean.bam -bg | sort -k1,1 -k2,2n | mergeBed > WTnoVi.clean.bed"
+```
+
+
+### Obtain human mappable regions
+
+Generate 100,000 mappable regions at random from human each the size of the viral genome, then add viral genome:
+
+```bash
+cd ~/bam_atac
+
+mkdir ../de_atac
+
+g=~/reference/hg38_HIV1_1LTR_circle.fa.fai
+
+bedtools intersect \
+-a <(bedtools random -l 3825 -n 150000 -seed 123 -g <(cut -f1,2 $g | grep "^chr" | grep -E -v "random|chrUn|chrEBV|chrM")) \
+-b WTnoVi.clean.bed \
+-wa -u | cut -f1-3 | head -n 100000 | bedtools sort -i > ../de_atac/regions.bed
+
+cd ../de_atac
+echo -e 'HIV1_1LTR_circle\t1\t3826' >> regions.bed
+```
+
+
+### Coverage in regions
+
+```bash
+cd ~/bam_atac
+
+sbatch -J multicov -o ../de_atac/multicov.log --mem 16G --wrap "bedtools multicov -bams WTnoVi.clean.bam WTnoVLP.clean.bam WTConVLP.clean.bam WTVprVLP.clean.bam -bed ../de_atac/regions.bed > ../de_atac/regions_counts.bed"
+```
+
+
+### Testing
+
+```r
+#cd ~/de_atac
+#R
+
+library(data.table)
+library(ggplot2)
+
+# Enlarge the view width when printing tables
+options(width = 250)
+
+# Load data
+data <- fread("regions_counts.bed")
+setnames(data, c("chr", "start", "end", "WTnoVi", "WTnoVLP", "WTConVLP", "WTVprVLP"))
+
+
+########################
+# WTVprVLP vs WTConVLP #
+########################
+detable_VprVLPvi_ConVLPvi <- copy(data[, c("chr", "start", "end", "WTConVLP", "WTVprVLP")])
+
+detable_VprVLPvi_ConVLPvi[chr == "HIV1_1LTR_circle", WTVprVLP := round(WTVprVLP/30)]
+detable_VprVLPvi_ConVLPvi[chr == "HIV1_1LTR_circle", WTConVLP := round(WTConVLP/30)]
+
+n_WTVprVLP <- sum(detable_VprVLPvi_ConVLPvi$WTVprVLP)
+n_WTConVLP <- sum(detable_VprVLPvi_ConVLPvi$WTConVLP)
+
+detable_VprVLPvi_ConVLPvi[, log2fc := log2((WTVprVLP/n_WTVprVLP)/(WTConVLP/n_WTConVLP))]
+detable_VprVLPvi_ConVLPvi[, pval := fisher.test(matrix(c(WTVprVLP, WTConVLP, n_WTVprVLP, n_WTConVLP), nrow = 2), alternative = "two.sided")$p.value, by = 1:nrow(detable_VprVLPvi_ConVLPvi)]
+detable_VprVLPvi_ConVLPvi[, pvaladj := p.adjust(detable_VprVLPvi_ConVLPvi$pval, method = "BH")]
+
+# Volcano plot
+gg <- ggplot(detable_VprVLPvi_ConVLPvi[is.finite(log2fc)], aes(x = log2fc, y = -log10(pvaladj))) +
+geom_point(size = 1, alpha = 0.25) +
+geom_point(data = detable_VprVLPvi_ConVLPvi[chr == "HIV1_1LTR_circle"], aes(x = log2fc, y = -log10(pvaladj)), color='red', size=3) +
+geom_point(data = detable_VprVLPvi_ConVLPvi[chr == "chr13" & start == 60663053 & end == 60666878], aes(x = log2fc, y = -log10(pvaladj)), color='green', size=3) +
+ylab(expression("-log"[10]*"FDR")) +
+xlab(expression("log"[2]*"FC")) +
+theme_classic() +
+coord_cartesian(xlim = c(-4, 4), clip = "off") +
+theme(axis.title = element_text(size=14), axis.text.y = element_text(size=14, color = "black"), axis.text.x = element_text(size=14, , color = "black"))
+
+ggsave('../figures/VprVLPvi_ConVLPvi_volcano.png')
+
+
+# Tables
+write.table(detable_VprVLPvi_ConVLPvi[order(pvaladj)], file = "~/tables/VprVLPvi_ConVLPvi.30xnorm.only.txt", row.names = FALSE, col.names = TRUE, sep = '\t', quote = FALSE)
+
+
+#######################
+# ConVLPvi vs WTnoVLP #
+#######################
+detable_ConVLPvi_WTviB <- copy(data[, c("chr", "start", "end", "WTnoVLP", "WTConVLP")])
+
+detable_ConVLPvi_WTviB[chr == "HIV1_1LTR_circle", WTConVLP := round(WTConVLP/30)]
+detable_ConVLPvi_WTviB[chr == "HIV1_1LTR_circle", WTnoVLP := round(WTnoVLP/30)]
+
+n_WTConVLP <- sum(detable_ConVLPvi_WTviB$WTConVLP)
+n_WTnoVLP <- sum(detable_ConVLPvi_WTviB$WTnoVLP)
+
+detable_ConVLPvi_WTviB[, log2fc := log2((WTConVLP/n_WTConVLP)/(WTnoVLP/n_WTnoVLP))]
+detable_ConVLPvi_WTviB[, pval := fisher.test(matrix(c(WTConVLP, WTnoVLP, n_WTConVLP, n_WTnoVLP), nrow = 2), alternative = "two.sided")$p.value, by = 1:nrow(detable_ConVLPvi_WTviB)]
+detable_ConVLPvi_WTviB[, pvaladj := p.adjust(detable_ConVLPvi_WTviB$pval, method = "BH")]
+
+# Volcano plot
+gg <- ggplot(detable_ConVLPvi_WTviB[is.finite(log2fc)], aes(x = log2fc, y = -log10(pvaladj))) +
+geom_point(size = 1, alpha = 0.25) +
+geom_point(data = detable_ConVLPvi_WTviB[chr == "HIV1_1LTR_circle"], aes(x = log2fc, y = -log10(pvaladj)), color='red', size=3) +
+geom_point(data = detable_ConVLPvi_WTviB[chr == "chr2" & start == 22400721 & end == 22404546], aes(x = log2fc, y = -log10(pvaladj)), color='green', size=3) +
+ylab(expression("-log"[10]*"FDR")) +
+xlab(expression("log"[2]*"FC")) +
+theme_classic() +
+coord_cartesian(xlim = c(-4, 4), clip = "off") +
+theme(axis.title = element_text(size=14), axis.text.y = element_text(size=14, color = "black"), axis.text.x = element_text(size=14, , color = "black"))
+
+ggsave('~/figures/ConVLPvi_WTviB_volcano.png')
+
+
+# Tables
+write.table(detable_ConVLPvi_WTviB[order(pvaladj)], file = "~/tables/ConVLPvi_WTviB.30xnorm.only.txt", row.names = FALSE, col.names = TRUE, sep = '\t', quote = FALSE)
 ```
